@@ -5,6 +5,7 @@ import shelve
 import tldextract
 
 def init_shelves():
+    '''initializes the shelves the first time scraper.py is launched'''
     stats_shelf = shelve.open('stats_shelf.db')
     words_shelf = shelve.open('words_shelf.db')
 
@@ -29,10 +30,11 @@ def scraper(url, resp):
     # -parse and store info for the questions on disk, need to log unique page count, longest page, common words, and subdomain count
     # -send soup obj to extract next links, then check links valid, then repeat for every page
 
-
     #check http status
     if resp.status != 200:
         return []
+
+    #check for large size
 
     #get the soup html from resp
     soup = BeautifulSoup(resp.raw_response.content, 'lxml')
@@ -66,17 +68,20 @@ def analyze(url, tokens, words):
     '''updates shelves with info from the page for the required report '''
     n = len(words)
 
+    #longest_page
     longest_page_dict = stats_shelf['longest_page']
     if n > longest_page_dict['count']:
         longest_page_dict['url'] = url
         longest_page_dict['count'] = n
     stats_shelf['longest_page'] = longest_page_dict
 
+    #subdomains
     subdomain = tldextract.extract(url).subdomain
     subdomain_dict = stats_shelf['subdomains']
     subdomain_dict[subdomain] = subdomain_dict.get(subdomain, 0) + 1
     stats_shelf['subdomains'] = subdomain_dict
 
+    #common words
     word_counts = {}
     for word in tokens:
         word_counts[word] = word_counts.get(word, 0) + 1

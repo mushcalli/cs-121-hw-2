@@ -1,11 +1,22 @@
 import re
 from urllib.parse import urlparse
+from bs4 import BeautifulSoup
 
 def scraper(url, resp):
-    links = extract_next_links(url, resp)
+
+    # scraper outline
+    # -get the soup html from resp
+    # -clean and tokenize it
+    # -detect if low information and  200 status pages with no data and discard it?
+    # -parse and store info for the questions on disk, need to log unique pages, longest page, common words, and subdomain count
+    # -send soup obj to extract next links, then check links valid, then repeat for every page
+
+    soup = BeautifulSoup(resp.raw_response.content, 'lxml')
+
+    links = extract_next_links(resp.url, soup)
     return [link for link in links if is_valid(link)]
 
-def extract_next_links(url, resp):
+def extract_next_links(url, soup : BeautifulSoup):
     # Implementation required.
     # url: the URL that was used to get the page
     # resp.url: the actual url of the page
@@ -15,7 +26,10 @@ def extract_next_links(url, resp):
     #         resp.raw_response.url: the url, again
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-    
+
+    #updated function header to use soup
+    #I think you shouldn't need the resp status or error because scraper will handle that
+    #url will be resp.url,
 
     return list()
 

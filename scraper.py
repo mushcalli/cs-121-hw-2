@@ -1,13 +1,32 @@
 import re
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
+import shelve
+import tldextract
+
+def init_shelves():
+    stats_shelf = shelve.open('stats_shelf.db')
+    words_shelf = shelve.open('words_shelf.db')
+
+    if 'page_count' not in stats_shelf:
+        stats_shelf['page_count'] = 0
+
+    if 'longest_page' not in stats_shelf:
+        stats_shelf['longest_page'] = {'url': 'None', 'count': 0}
+
+    if 'subdomains' not in stats_shelf:
+        stats_shelf['subdomains'] = dict()
+
+    return stats_shelf, words_shelf
+
+stats_shelf, words_shelf = init_shelves()
 
 def scraper(url, resp):
 
     # scraper outline
     # -clean and tokenize it
-    # -detect if low information and  200 status pages with no data and discard it?
-    # -parse and store info for the questions on disk, need to log unique pages, longest page, common words, and subdomain count
+    # -detect if low information and 200 status pages with no data and discard it?
+    # -parse and store info for the questions on disk, need to log unique page count, longest page, common words, and subdomain count
     # -send soup obj to extract next links, then check links valid, then repeat for every page
 
 
@@ -22,8 +41,15 @@ def scraper(url, resp):
     words = soup.get_text(separator = " ", strip = True)
     tokens = tokenize(words)
 
+    # add to page_count before low info check
+    stats_shelf['page_count'] += 1
+
+    #avoid low info pages somehow?
+    if (is_low_info(tokens, soup)):
+        return []
+
     # -parse and store info for the questions on disk, need to log unique pages, longest page, common words, and subdomain count
-    analyze(tokens)
+    analyze(url, tokens, words)
 
     # -send soup obj to extract next links, then check links valid, then repeat for every page
     links = extract_next_links(resp.url, soup)
@@ -32,8 +58,30 @@ def scraper(url, resp):
 def tokenize(soup):
     pass
 
-def analyze(url, tokens):
+def is_low_info(tokens, soup):
     pass
+
+def analyze(url, tokens, words):
+    n = len(words)
+
+    longest_page_dict = stats_shelf['longest_page']
+    if n > longest_page_dict['count']:
+        longest_page_dict['url'] = url
+        longest_page_dict['count'] = n
+    stats_shelf['longest_page'] = longest_page_dict
+
+    subdomain = tldextract.extract(url).subdomain
+    subdomain_dict = stats_shelf['subdomains']
+    subdomain_dict[subdomain] = subdomain_dict.get(subdomain, 0) + 1
+    stats_shelf['subdomains'] = subdomain_dict
+
+    word_counts = {}
+    for word in tokens:
+        word_counts[word] = word_counts.get(word, 0) + 1
+
+    for word, count  in word_counts.items():
+        words_shelf[word] = words_shelf.get(word, 0) + count
+
 
 def extract_next_links(url, soup : BeautifulSoup):
     # Implementation required.
@@ -53,7 +101,7 @@ def extract_next_links(url, soup : BeautifulSoup):
     return list()
 
 def is_valid(url):
-    # Decide whether to crawl this url or not. 
+    # Decide whether to crawl this url or not.
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
     try:

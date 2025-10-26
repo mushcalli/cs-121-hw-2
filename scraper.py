@@ -5,16 +5,35 @@ from bs4 import BeautifulSoup
 def scraper(url, resp):
 
     # scraper outline
-    # -get the soup html from resp
     # -clean and tokenize it
     # -detect if low information and  200 status pages with no data and discard it?
     # -parse and store info for the questions on disk, need to log unique pages, longest page, common words, and subdomain count
     # -send soup obj to extract next links, then check links valid, then repeat for every page
 
+
+    #check http status
+    if resp.status != 200:
+        return []
+
+    #get the soup html from resp
     soup = BeautifulSoup(resp.raw_response.content, 'lxml')
 
+    #clean get html and tokenize it
+    words = soup.get_text(separator = " ", strip = True)
+    tokens = tokenize(words)
+
+    # -parse and store info for the questions on disk, need to log unique pages, longest page, common words, and subdomain count
+    analyze(tokens)
+
+    # -send soup obj to extract next links, then check links valid, then repeat for every page
     links = extract_next_links(resp.url, soup)
     return [link for link in links if is_valid(link)]
+
+def tokenize(soup):
+    pass
+
+def analyze(tokens):
+    pass
 
 def extract_next_links(url, soup : BeautifulSoup):
     # Implementation required.

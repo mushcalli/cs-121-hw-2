@@ -59,9 +59,11 @@ def tokenize(soup):
     pass
 
 def is_low_info(tokens, soup):
+    '''determines if the page is low info based on low word count and low unique word ratio'''
     pass
 
 def analyze(url, tokens, words):
+    '''updates shelves with info from the page for the required report '''
     n = len(words)
 
     longest_page_dict = stats_shelf['longest_page']

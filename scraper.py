@@ -1,5 +1,5 @@
 import re
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse, urldefrag
 from bs4 import BeautifulSoup
 
 def scraper(url, resp):
@@ -11,10 +11,14 @@ def scraper(url, resp):
     # -parse and store info for the questions on disk, need to log unique pages, longest page, common words, and subdomain count
     # -send soup obj to extract next links, then check links valid, then repeat for every page
 
+    # check status and skip invalid resp
+    if resp.status != 200:
+        print(f"Response Error: {resp.error}")
+        return []
+    
     soup = BeautifulSoup(resp.raw_response.content, 'lxml')
-
     links = extract_next_links(resp.url, soup)
-    return [link for link in links if is_valid(link)]
+    return links
 
 def extract_next_links(url, soup : BeautifulSoup):
     # Implementation required.
@@ -31,7 +35,19 @@ def extract_next_links(url, soup : BeautifulSoup):
     #I think you shouldn't need the resp status or error because scraper will handle that
     #url will be resp.url,
 
-    return list()
+    next_links = set()
+
+    # iterate through list of <a> tags in the documents (links)
+    for a in soup.find_all('a', href=True):
+        # href=... -> extract ... add add to raw_links
+        link = a["href"]
+        join_link = urljoin(url, link)
+        join_link, _ = urldefrag(join_link)
+        if is_valid(join_link):
+            next_links.add(join_link)
+
+    return next_links
+    
 
 def is_valid(url):
     # Decide whether to crawl this url or not. 
@@ -41,6 +57,15 @@ def is_valid(url):
         parsed = urlparse(url)
         if parsed.scheme not in set(["http", "https"]):
             return False
+        
+        # only crawl in allowed domains
+        # the function checks if the url ends with the string of domain
+        if not (parsed.netloc.endswith(".ics.uci.edu") or
+                parsed.netloc.endswith(".cs.uci.edu") or
+                parsed.netloc.endswith(".informatics.uci.edu") or
+                parsed.netloc.endswith(".stat.uci.edu")):
+            return False
+            
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"

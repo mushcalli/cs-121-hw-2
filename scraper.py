@@ -21,6 +21,7 @@ def init_shelves():
     return stats_shelf, words_shelf
 
 stats_shelf, words_shelf = init_shelves()
+STOP_WORDS = set([])
 
 def scraper(url, resp):
 
@@ -37,36 +38,44 @@ def scraper(url, resp):
     #check for large size
 
     #get the soup html from resp
-    soup = BeautifulSoup(resp.raw_response.content, 'lxml')
+    try:
+        soup = BeautifulSoup(resp.raw_response.content, 'lxml')
+    except Exception as e:
+        print(f"BeautifulSoup Error on {url}: {e}")
+        return []
 
     #clean get html and tokenize it
-    words = soup.get_text(separator = " ", strip = True)
-    tokens = tokenize(words)
+    text = soup.get_text(separator = " ", strip = True)
+    all_tokens = tokenize(text)
+
+    #filter tokens
+    filtered_tokens = [token for token in all_tokens if token not in STOP_WORDS]
 
     # add to page_count before low info check
     stats_shelf['page_count'] += 1
 
     #avoid low info pages somehow?
-    if (is_low_info(tokens, soup)):
+    if (is_low_info(filtered_tokens)):
         return []
 
     # -parse and store info for the questions on disk, need to log unique pages, longest page, common words, and subdomain count
-    analyze(url, tokens, words)
+    analyze(url, filtered_tokens, all_tokens)
 
     # -send soup obj to extract next links, then check links valid, then repeat for every page
     links = extract_next_links(resp.url, soup)
     return [link for link in links if is_valid(link)]
 
-def tokenize(soup):
+def tokenize(text):
+    '''converts a string of text to tokens'''
     pass
 
-def is_low_info(tokens, soup):
+def is_low_info(tokens):
     '''determines if the page is low info based on low word count and low unique word ratio'''
     pass
 
-def analyze(url, tokens, words):
+def analyze(url, filtered_tokens, all_tokens):
     '''updates shelves with info from the page for the required report '''
-    n = len(words)
+    n = len(all_tokens)
 
     #longest_page
     longest_page_dict = stats_shelf['longest_page']
@@ -83,7 +92,7 @@ def analyze(url, tokens, words):
 
     #common words
     word_counts = {}
-    for word in tokens:
+    for word in filtered_tokens:
         word_counts[word] = word_counts.get(word, 0) + 1
 
     for word, count  in word_counts.items():

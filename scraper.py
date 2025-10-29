@@ -2,7 +2,6 @@ import re
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urldefrag
-import shelve
 import tldextract
 
 import storage
@@ -49,7 +48,7 @@ def scraper(url, resp):
     stats_shelf['page_count'] += 1
 
     #avoid low info pages somehow?
-    if (is_low_info(filtered_tokens)):
+    if is_low_info(filtered_tokens):
         return []
 
     # -parse and store info for the questions on disk, need to log unique pages, longest page, common words, and subdomain count
@@ -61,16 +60,19 @@ def scraper(url, resp):
 
 def tokenize(text):
     '''converts a string of text to tokens'''
-    #use regex?
-    pass
+
+    #simple lowercase alphanumeric tokens
+    return re.findall(r'[a-z0-9]+', text.lower())
 
 def is_low_info(tokens):
-    '''determines if the page is low info based on low word count and low unique word ratio'''
-    pass
+    '''determines if the page is low info based on low word count'''
+    return len(tokens) < LOW_INFO_THRESHOLD
 
 def analyze(url, filtered_tokens, all_tokens):
     '''updates shelves with info from the page for the required report '''
     n = len(all_tokens)
+
+    stats_shelf['valid_page_count'] += 1
 
     #longest_page
     longest_page_dict = stats_shelf['longest_page']
@@ -110,9 +112,8 @@ def extract_next_links(url, soup : BeautifulSoup):
         link = a["href"]
         join_link = urljoin(url, link)
         join_link, _ = urldefrag(join_link)
-        if is_valid(join_link):
-            next_links.add(join_link)
-    return list(next_links)
+        next_links.add(join_link)
+    return next_links
 
 
 def is_valid(url):

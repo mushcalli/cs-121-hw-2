@@ -1,71 +1,208 @@
 import re
-from urllib.parse import urljoin, urlparse, urldefrag
+from urllib.parse import urlparse, urljoin, urldefrag
 from bs4 import BeautifulSoup
+import tldextract
+import atexit
+import storage  # your custom storage module
+
+storage.open_shelves()                      # open shelves once per run
+atexit.register(storage.close_shelves)      # ensure clean close at shutdown
+
+stats_shelf = storage.get_stats_shelf()
+words_shelf = storage.get_words_shelf()
+
+LOW_INFO_THRESHOLD = 50
+STOP_WORDS = set() 
+
 
 def scraper(url, resp):
-
-    # scraper outline
-    # -get the soup html from resp
-    # -clean and tokenize it
-    # -detect if low information and  200 status pages with no data and discard it?
-    # -parse and store info for the questions on disk, need to log unique pages, longest page, common words, and subdomain count
-    # -send soup obj to extract next links, then check links valid, then repeat for every page
-
-    # check status and skip invalid resp
+    """Main scraper function called by the crawler."""
+    # 1. Validate HTTP response
     if resp.status != 200:
-        print(f"Response Error: {resp.error}")
         return []
-    
-    soup = BeautifulSoup(resp.raw_response.content, 'lxml')
+
+    # 2. Skip empty or tiny pages
+    if not resp.raw_response or not resp.raw_response.content or len(resp.raw_response.content) < 50:
+        return []
+
+    # 3. Parse HTML safely
+    try:
+        soup = BeautifulSoup(resp.raw_response.content, "lxml")
+    except Exception as e:
+        print(f"BeautifulSoup Error on {url}: {e}")
+        return []
+
+    # 4. Extract and clean text
+    text = soup.get_text(separator=" ", strip=True)
+    all_tokens = tokenize(text)
+    filtered_tokens = [t for t in all_tokens if t not in STOP_WORDS]
+
+    # 5. Update page count safely
+    if "page_count" not in stats_shelf:
+        stats_shelf["page_count"] = 0
+    stats_shelf["page_count"] += 1
+
+    # 6. Detect low-information pages
+    if is_low_info(filtered_tokens):
+        return []
+
+    # 7. Analyze and store results
+    analyze(url, filtered_tokens, all_tokens)
+
+    # 8. Extract next links to crawl
     links = extract_next_links(resp.url, soup)
-    return links
+    return [link for link in links if is_valid(link)]
 
-def extract_next_links(url, soup : BeautifulSoup):
-    # Implementation required.
-    # url: the URL that was used to get the page
-    # resp.url: the actual url of the page
-    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
-    # resp.error: when status is not 200, you can check the error here, if needed.
-    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
-    #         resp.raw_response.url: the url, again
-    #         resp.raw_response.content: the content of the page!
-    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
 
-    #updated function header to use soup
-    #I think you shouldn't need the resp status or error because scraper will handle that
-    #url will be resp.url,
+# --- Helper Functions ---
+def tokenize(text):
+    """Splits text into lowercase alphanumeric tokens."""
+    return re.findall(r"[a-zA-Z0-9]+", text.lower())
 
+
+def is_low_info(tokens):
+    """Detects low-information pages based on token count and unique ratio."""
+    if len(tokens) < LOW_INFO_THRESHOLD:
+        return True
+    unique_ratio = len(set(tokens)) / len(tokens)
+    return unique_ratio < 0.2
+
+
+def analyze(url, filtered_tokens, all_tokens):
+    """Updates shelves with page stats: longest page, subdomains, common words."""
+    n = len(all_tokens)
+
+    # Longest page
+    longest_page = stats_shelf["longest_page"]
+    if n > longest_page["count"]:
+        longest_page["url"] = url
+        longest_page["count"] = n
+        stats_shelf["longest_page"] = longest_page
+
+    # Subdomains
+    subdomain = tldextract.extract(url).subdomain or "root"
+    subdomains = stats_shelf["subdomains"]
+    subdomains[subdomain] = subdomains.get(subdomain, 0) + 1
+    stats_shelf["subdomains"] = subdomains
+
+    # Common words
+    word_counts = {}
+    for word in filtered_tokens:
+        word_counts[word] = word_counts.get(word, 0) + 1
+    for word, count in word_counts.items():
+        words_shelf[word] = words_shelf.get(word, 0) + count
+
+
+def extract_next_links(url, soup: BeautifulSoup):
+    """Extracts and normalizes all valid outgoing links from a page."""
+    # Error -> malformed url
+    # Exception in thread Thread-1:
+    # Traceback (most recent call last):
+    #   File "/usr/lib/python3.10/threading.py", line 1016, in _bootstrap_inner
+    #     self.run()
+    #   File "/home/thuyn18/cs-121-hw-2/crawler/worker.py", line 30, in run
+    #     scraped_urls = scraper.scraper(tbd_url, resp)
+    #   File "/home/thuyn18/cs-121-hw-2/scraper.py", line 56, in scraper
+    #     links = extract_next_links(resp.url, soup)
+    #   File "/home/thuyn18/cs-121-hw-2/scraper.py", line 104, in extract_next_links
+    #     join_link = urljoin(url, link)
+    #   File "/usr/lib/python3.10/urllib/parse.py", line 577, in urljoin
+    #     urlparse(url, bscheme, allow_fragments)
+    #   File "/usr/lib/python3.10/urllib/parse.py", line 401, in urlparse
+    #     splitresult = urlsplit(url, scheme, allow_fragments)
+    #   File "/usr/lib/python3.10/urllib/parse.py", line 525, in urlsplit
+    #     _check_bracketed_netloc(netloc)
+    #   File "/usr/lib/python3.10/urllib/parse.py", line 460, in _check_bracketed_netloc
+    #     _check_bracketed_host(hostname)
+    #   File "/usr/lib/python3.10/urllib/parse.py", line 469, in _check_bracketed_host
+    #     ip = ipaddress.ip_address(hostname) # Throws Value Error if not IPv6 or IPv4
+    #   File "/usr/lib/python3.10/ipaddress.py", line 54, in ip_address
+    #     raise ValueError(f'{address!r} does not appear to be an IPv4 or IPv6 address')
+    # ValueError: 'YOUR_IP' does not appear to be an IPv4 or IPv6 address
     next_links = set()
+    for a in soup.find_all("a", href=True):
+        link = a["href"].strip()
 
-    # iterate through list of <a> tags in the documents (links)
-    for a in soup.find_all('a', href=True):
-        # href=... -> extract ... add add to raw_links
-        link = a["href"]
-        join_link = urljoin(url, link)
-        join_link, _ = urldefrag(join_link)
-        if is_valid(join_link):
-            next_links.add(join_link)
+        # check to skip obvious junk or fake urls (url with placeholders..) 
+        if not link or link.startswith("#"):
+            continue
+        if any(prefix in link.lower() for prefix in ["mailto:", "javascript:", "tel:"]):
+            continue
+        if "YOUR_IP" in link or "example.com" in link:
+            continue
+        
+        try:
+            join_link = urljoin(url, link)
+            join_link, _ = urldefrag(join_link)
+        # skip any urls that are malformed, don't add to next_links
+        except Exception:
+            continue
+            
+            if is_valid(join_link):
+                next_links.add(join_link)
+        except Exception as e:
+            print(f"Error: {e}")
+            continue
+    return list(next_links)
 
-    return next_links
-    
 
 def is_valid(url):
-    # Decide whether to crawl this url or not. 
-    # If you decide to crawl it, return True; otherwise return False.
-    # There are already some conditions that return False.
+    """Determines if a URL should be crawled."""
+    # Trap here
+    # https://wiki.ics.uci.edu/doku.php/projects:maint-winter-2019?tab_details=history&do=media&tab_files=files&image=security%3Avpn_settings5.png&ns=virtual_environments, status <200>, using cache ('styx.ics.uci.edu', 9001).
     try:
         parsed = urlparse(url)
-        if parsed.scheme not in set(["http", "https"]):
+        if parsed.scheme not in {"http", "https"}:
             return False
-        
-        # only crawl in allowed domains
-        # the function checks if the url ends with the string of domain
-        if not (parsed.netloc.endswith(".ics.uci.edu") or
-                parsed.netloc.endswith(".cs.uci.edu") or
-                parsed.netloc.endswith(".informatics.uci.edu") or
-                parsed.netloc.endswith(".stat.uci.edu")):
+
+        # Check domain restriction
+        domain = parsed.netloc.lower()
+        valid_domains = [
+            "ics.uci.edu",
+            "cs.uci.edu",
+            "informatics.uci.edu",
+            "stat.uci.edu",
+        ]
+        if not any(domain.endswith(d) for d in valid_domains):
             return False
-            
+
+        # Reject overly long URLs (potential traps)
+        if len(url) > 200:
+            return False
+
+
+        # Avoid Trap Rules
+        query = parsed.query.lower()
+        path = parsed.path.lower()
+
+        trap_keys = ["do=", "tab_", "idx=", "ns=", "image=", "ical", "calendar", "feed", "print", "session", "sid=", "sessionid=", "session_id=", "replytocom", "format=print", "action=", "option="]
+
+        # skip media, export/feed, dynamic session (not real page), backend parameters and other traps that have encountered
+        if any(q in query for q in trap_keys):
+            return False
+
+        # block specific calendar view or export links
+        # Trap here -> calendar goes to past and future date which cause forever trap
+        # /events/category/volunteer-opportunity/day/2025-08-15
+        # /events/category/volunteer-opportunity/day/2025-08-15/?ical=1
+        # /events/category/volunteer-opportunity/day/2025-08-15/?outlook-ical=1
+        # /events/category/volunteer-opportunity/list/?tribe-bar-date=2025-08-13
+        # /events/category/volunteer-opportunity/list/?tribe-bar-date=2025-08-13&eventDisplay=past
+        # /events/category/volunteer-opportunity/list/?tribe-bar-date=2025-08-13&ical=1
+        if ("/events/" in path and
+        ("/day/" in path or "/list/" in path or re.search(r"\d{4}-\d{2}-\d{2}", path)  # date-based URLs
+        )):
+            return False
+
+        # avoid wp-json and other API endpoints
+        if "/wp-json/" in url or "/xmlrpc.php" in url:
+            return False
+
+        # avoid repeated directory traps
+        if re.search(r"(/.+)\1{2,}", path):
+            return False
+
+        # --- File extension filtering (non-HTML) ---
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
@@ -74,8 +211,10 @@ def is_valid(url):
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
-            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
+            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$",
+            parsed.path.lower(),
+        )
 
     except TypeError:
-        print ("TypeError for ", parsed)
+        print("TypeError for ", url)
         raise

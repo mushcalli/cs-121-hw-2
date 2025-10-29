@@ -1,6 +1,7 @@
 import re
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urldefrag
 import shelve
 import tldextract
 
@@ -110,11 +111,17 @@ def extract_next_links(url, soup : BeautifulSoup):
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
 
-    #updated function header to use soup
-    #I think you shouldn't need the resp status or error because scraper will handle that
-    #url will be resp.url,
+    next_links = set()
+    for a in soup.find_all('a', href = True):
+        link = a["href"]
+        join_link = urljoin(url, link)
+        join_link, _ = urldefrag(join_link)
+        if is_valid(join_link):
+            next_links.add(join_link)
+    return list(next_links)
 
     return list()
+
 
 def is_valid(url):
     # Decide whether to crawl this url or not.
@@ -122,8 +129,30 @@ def is_valid(url):
     # There are already some conditions that return False.
     try:
         parsed = urlparse(url)
+
         if parsed.scheme not in set(["http", "https"]):
             return False
+
+        # checks if it's in a uci domain
+        domain = parsed.netloc.lower()
+        valid_domains = [
+            "ics.uci.edu",
+            "cs.uci.edu",
+            "informatics.uci.edu",
+            "stat.uci.edu"
+        ]
+        is_in_valid_domain = False
+        for d in valid_domains:
+            if domain.endswith(d):
+                is_in_valid_domain = True
+                break
+        if not is_in_valid_domain:
+            return False
+
+        # check for too long urls (potential testcase)
+        if len(url) > 200:  # idk if 200 chars is considered "too long" tho
+            return False
+
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
@@ -135,5 +164,5 @@ def is_valid(url):
             + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
 
     except TypeError:
-        print ("TypeError for ", parsed)
+        print("TypeError for ", parsed)
         raise

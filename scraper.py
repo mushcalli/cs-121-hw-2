@@ -5,38 +5,31 @@ from urllib.parse import urljoin, urldefrag
 import shelve
 import tldextract
 
-def init_shelves():
-    '''initializes the shelves the first time scraper.py is launched'''
-    stats_shelf = shelve.open('stats_shelf.db')
-    words_shelf = shelve.open('words_shelf.db')
+import storage
 
-    if 'page_count' not in stats_shelf:
-        stats_shelf['page_count'] = 0
+stats_shelf = storage.get_stats_shelf()
+words_shelf = storage.get_words_shelf()
 
-    if 'longest_page' not in stats_shelf:
-        stats_shelf['longest_page'] = {'url': 'None', 'count': 0}
-
-    if 'subdomains' not in stats_shelf:
-        stats_shelf['subdomains'] = dict()
-
-    return stats_shelf, words_shelf
-
-stats_shelf, words_shelf = init_shelves()
 STOP_WORDS = set([])
+LOW_INFO_THRESHOLD = 50
 
 def scraper(url, resp):
-
     # scraper outline
     # -clean and tokenize it
     # -detect if low information and 200 status pages with no data and discard it?
     # -parse and store info for the questions on disk, need to log unique page count, longest page, common words, and subdomain count
-    # -send soup obj to extract next links, then check links valid, then repeat for every page
 
     #check http status
     if resp.status != 200:
         return []
 
+    #check for no data
+    if not resp.raw_response or not resp.raw_response.content or len(resp.raw_response.content) < 50: #50 bytes
+        return []
+
     #check for large size
+    # if (size > 10mb):
+    #     return []
 
     #get the soup html from resp
     try:
@@ -68,6 +61,7 @@ def scraper(url, resp):
 
 def tokenize(text):
     '''converts a string of text to tokens'''
+    #use regex?
     pass
 
 def is_low_info(tokens):
@@ -119,8 +113,6 @@ def extract_next_links(url, soup : BeautifulSoup):
         if is_valid(join_link):
             next_links.add(join_link)
     return list(next_links)
-
-    return list()
 
 
 def is_valid(url):

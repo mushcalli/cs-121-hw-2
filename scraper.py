@@ -123,26 +123,32 @@ def extract_next_links(url, soup: BeautifulSoup):
     for a in soup.find_all("a", href=True):
         link = a["href"].strip()
 
-        # check to skip obvious junk or fake urls (url with placeholders..) 
+        # Skip obvious junk or placeholder URLs
         if not link or link.startswith("#"):
             continue
         if any(prefix in link.lower() for prefix in ["mailto:", "javascript:", "tel:"]):
             continue
-        if "YOUR_IP" in link or "example.com" in link:
+        # Skip placeholder or fake hostnames like YOUR_IP, example.com, etc.
+        if re.search(r"your[_-]?ip", link, re.IGNORECASE) or "example.com" in link.lower():
             continue
-        
+
+        # Try to safely normalize the link
         try:
-            join_link = urljoin(url, link)
-            join_link, _ = urldefrag(join_link)
-        # skip any urls that are malformed, don't add to next_links
+            join_link = urljoin(url, link)      # make relative URLs absolute
+            join_link, _ = urldefrag(join_link) # remove fragments
         except Exception:
+            # Skip any malformed URL that raises during parsing
             continue
-            
+
+        # Validate before adding to the set
+        try:
             if is_valid(join_link):
                 next_links.add(join_link)
         except Exception as e:
-            print(f"Error: {e}")
+            # Log and skip if is_valid() itself fails
+            print(f"Validation error for URL {join_link}: {e}")
             continue
+
     return list(next_links)
 
 
@@ -190,7 +196,7 @@ def is_valid(url):
         # /events/category/volunteer-opportunity/list/?tribe-bar-date=2025-08-13&eventDisplay=past
         # /events/category/volunteer-opportunity/list/?tribe-bar-date=2025-08-13&ical=1
         if ("/events/" in path and
-        ("/day/" in path or "/list/" in path or re.search(r"\d{4}-\d{2}-\d{2}", path)  # date-based URLs
+        ("/day/" in path or "/list/" in path or re.search(r"\d{4}-\d{2}-\d{2}", path) or re.search(r"/events/category/.+/\d{4}-\d{2}", path)  # date-based URLs
         )):
             return False
 

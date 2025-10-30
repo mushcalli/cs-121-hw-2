@@ -12,7 +12,7 @@ stats_shelf = storage.get_stats_shelf()
 words_shelf = storage.get_words_shelf()
 
 LOW_INFO_THRESHOLD = 50
-STOP_WORDS = set() 
+STOP_WORDS = ["i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself", "yourselves", "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself", "they", "them", "their", "theirs", "themselves", "what", "which", "who", "whom", "this", "that", "these", "those", "am", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", "does", "did", "doing", "a", "an", "the", "and", "but", "if", "or", "because", "as", "until", "while", "of", "at", "by", "for", "with", "about", "against", "between", "into", "through", "during", "before", "after", "above", "below", "to", "from", "up", "down", "in", "out", "on", "off", "over", "under", "again", "further", "then", "once", "here", "there", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will", "just", "don", "should", "now"] 
 
 
 def scraper(url, resp):
@@ -195,10 +195,19 @@ def is_valid(url):
         # /events/category/volunteer-opportunity/list/?tribe-bar-date=2025-08-13
         # /events/category/volunteer-opportunity/list/?tribe-bar-date=2025-08-13&eventDisplay=past
         # /events/category/volunteer-opportunity/list/?tribe-bar-date=2025-08-13&ical=1
-        if ("/events/" in path and
-        ("/day/" in path or "/list/" in path or re.search(r"\d{4}-\d{2}-\d{2}", path) or re.search(r"/events/category/.+/\d{4}-\d{2}", path)  # date-based URLs
-        )):
+        if (
+            "/events/" in path and (
+                "/day/" in path or
+                "/list/" in path or
+                re.search(r"\d{4}-\d{2}-\d{2}", path) or   # /2025-08-15 style
+                re.search(r"/events/category/.+/\d{4}-\d{2}", path)  # /fundraiser/2021-03 style
+            )
+        ):
             return False
+
+        if re.search(r"/events/.*/\d{4}-\d{2}", path):
+            return False
+
 
         # avoid wp-json and other API endpoints
         if "/wp-json/" in url or "/xmlrpc.php" in url:

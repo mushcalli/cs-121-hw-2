@@ -1,18 +1,42 @@
 import re
 from urllib.parse import urlparse, urljoin, urldefrag
+import atexit
+
 from bs4 import BeautifulSoup
 import tldextract
-import atexit
-import storage  # your custom storage module
 
-storage.open_shelves()                      # open shelves once per run
-atexit.register(storage.close_shelves)      # ensure clean close at shutdown
+import storage
+from utils import get_logger
+
+storage.open_shelves()
+atexit.register(storage.close_shelves)
 
 stats_shelf = storage.get_stats_shelf()
 words_shelf = storage.get_words_shelf()
+logger = get_logger("SCRAPER")
 
 LOW_INFO_THRESHOLD = 50
-STOP_WORDS = set() 
+STOP_WORDS = {
+    "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any",
+    "are", "aren't", "as", "at", "be", "because", "been", "before", "being", "below",
+    "between", "both", "but", "by", "can't", "cannot", "could", "couldn't", "did",
+    "didn't", "do", "does", "doesn't", "doing", "don't", "down", "during", "each", "few",
+    "for", "from", "further", "had", "hadn't", "has", "hasn't", "have", "haven't",
+    "having", "he", "he'd", "he'll", "he's", "her", "here", "here's", "hers", "herself",
+    "him", "himself", "his", "how", "how's", "i", "i'd", "i'll", "i'm", "i've", "if",
+    "in", "into", "is", "isn't", "it", "it's", "its", "itself", "let's", "me", "more",
+    "most", "mustn't", "my", "myself", "no", "nor", "not", "of", "off", "on", "once",
+    "only", "or", "other", "ought", "our", "ours", "ourselves", "out", "over", "own",
+    "same", "shan't", "she", "she'd", "she'll", "she's", "should", "shouldn't", "so",
+    "some", "such", "than", "that", "that's", "the", "their", "theirs", "them",
+    "themselves", "then", "there", "there's", "these", "they", "they'd", "they'll",
+    "they're", "they've", "this", "those", "through", "to", "too", "under", "until",
+    "up", "very", "was", "wasn't", "we", "we'd", "we'll", "we're", "we've", "were",
+    "weren't", "what", "what's", "when", "when's", "where", "where's", "which", "while",
+    "who", "who's", "whom", "why", "why's", "with", "won't", "would", "wouldn't", "you",
+    "you'd", "you'll", "you're", "you've", "your", "yours", "yourself", "yourselves"
+}
+
 
 
 def scraper(url, resp):
@@ -25,11 +49,21 @@ def scraper(url, resp):
     if not resp.raw_response or not resp.raw_response.content or len(resp.raw_response.content) < 50:
         return []
 
+    #skip large files
+    try:
+        content_length = int(resp.raw_response.headers.get('Content-Length', 0))
+        if content_length > 10_000_000: #10 mb
+            logger.info(f"Skipping large file: {url} ({content_length} bytes)")
+            return []
+    except (ValueError, TypeError):
+        # Ignore if header is invalid
+        pass
+
     # 3. Parse HTML safely
     try:
         soup = BeautifulSoup(resp.raw_response.content, "lxml")
     except Exception as e:
-        print(f"BeautifulSoup Error on {url}: {e}")
+        logger.info(f"BeautifulSoup Error on {url}: {e}")
         return []
 
     # 4. Extract and clean text
@@ -38,12 +72,11 @@ def scraper(url, resp):
     filtered_tokens = [t for t in all_tokens if t not in STOP_WORDS]
 
     # 5. Update page count safely
-    if "page_count" not in stats_shelf:
-        stats_shelf["page_count"] = 0
     stats_shelf["page_count"] += 1
 
     # 6. Detect low-information pages
     if is_low_info(filtered_tokens):
+        logger.info(f"low info url: {url}")
         return []
 
     # 7. Analyze and store results
@@ -95,32 +128,9 @@ def analyze(url, filtered_tokens, all_tokens):
 
 def extract_next_links(url, soup: BeautifulSoup):
     """Extracts and normalizes all valid outgoing links from a page."""
-    # Error -> malformed url
-    # Exception in thread Thread-1:
-    # Traceback (most recent call last):
-    #   File "/usr/lib/python3.10/threading.py", line 1016, in _bootstrap_inner
-    #     self.run()
-    #   File "/home/thuyn18/cs-121-hw-2/crawler/worker.py", line 30, in run
-    #     scraped_urls = scraper.scraper(tbd_url, resp)
-    #   File "/home/thuyn18/cs-121-hw-2/scraper.py", line 56, in scraper
-    #     links = extract_next_links(resp.url, soup)
-    #   File "/home/thuyn18/cs-121-hw-2/scraper.py", line 104, in extract_next_links
-    #     join_link = urljoin(url, link)
-    #   File "/usr/lib/python3.10/urllib/parse.py", line 577, in urljoin
-    #     urlparse(url, bscheme, allow_fragments)
-    #   File "/usr/lib/python3.10/urllib/parse.py", line 401, in urlparse
-    #     splitresult = urlsplit(url, scheme, allow_fragments)
-    #   File "/usr/lib/python3.10/urllib/parse.py", line 525, in urlsplit
-    #     _check_bracketed_netloc(netloc)
-    #   File "/usr/lib/python3.10/urllib/parse.py", line 460, in _check_bracketed_netloc
-    #     _check_bracketed_host(hostname)
-    #   File "/usr/lib/python3.10/urllib/parse.py", line 469, in _check_bracketed_host
-    #     ip = ipaddress.ip_address(hostname) # Throws Value Error if not IPv6 or IPv4
-    #   File "/usr/lib/python3.10/ipaddress.py", line 54, in ip_address
-    #     raise ValueError(f'{address!r} does not appear to be an IPv4 or IPv6 address')
-    # ValueError: 'YOUR_IP' does not appear to be an IPv4 or IPv6 address
+
     next_links = set()
-    for a in soup.find_all("a", href=True):
+    for a in soup.find_all(["a", "area"], href=True):
         link = a["href"].strip()
 
         # Skip obvious junk or placeholder URLs
@@ -128,16 +138,18 @@ def extract_next_links(url, soup: BeautifulSoup):
             continue
         if any(prefix in link.lower() for prefix in ["mailto:", "javascript:", "tel:"]):
             continue
-        # Skip placeholder or fake hostnames like YOUR_IP, example.com, etc.
+
+        # Skip placeholder or fake hostnames
         if re.search(r"your[_-]?ip", link, re.IGNORECASE) or "example.com" in link.lower():
             continue
 
-        # Try to safely normalize the link
+        # normalize the link
         try:
             join_link = urljoin(url, link)      # make relative URLs absolute
             join_link, _ = urldefrag(join_link) # remove fragments
-        except Exception:
-            # Skip any malformed URL that raises during parsing
+        except Exception as e:
+            # Skip any malformed URL
+            logger.info(f"malformed url: {url} , {link} , {e}")
             continue
 
         # Validate before adding to the set
@@ -145,8 +157,8 @@ def extract_next_links(url, soup: BeautifulSoup):
             if is_valid(join_link):
                 next_links.add(join_link)
         except Exception as e:
-            # Log and skip if is_valid() itself fails
-            print(f"Validation error for URL {join_link}: {e}")
+            # skip if is_valid() fails
+            logger.info(f"invalid url: {join_link} , {e}")
             continue
 
     return list(next_links)
@@ -177,11 +189,38 @@ def is_valid(url):
             return False
 
 
-        # Avoid Trap Rules
         query = parsed.query.lower()
         path = parsed.path.lower()
 
-        trap_keys = ["do=", "tab_", "idx=", "ns=", "image=", "ical", "calendar", "feed", "print", "session", "sid=", "sessionid=", "session_id=", "replytocom", "format=print", "action=", "option="]
+        # Reject if query string is too long
+        if len(query) > 100:
+            return False
+
+        # Reject if too many parameters
+        if query.count('&') > 3:
+            return False
+
+
+        trap_keys = ["do=",
+                     "tab_",
+                     "idx=",
+                     "ns=",
+                     "image=",
+                     "ical",
+                     "calendar",
+                     "feed",
+                     "print",
+                     "session",
+                     "sid=",
+                     "sessionid=",
+                     "session_id=",
+                     "replytocom",
+                     "format=print",
+                     "action=",
+                     "option=",
+                     "share=",
+                     "tribe-bar-date="
+                     ]
 
         # skip media, export/feed, dynamic session (not real page), backend parameters and other traps that have encountered
         if any(q in query for q in trap_keys):
@@ -203,6 +242,10 @@ def is_valid(url):
         # avoid wp-json and other API endpoints
         if "/wp-json/" in url or "/xmlrpc.php" in url:
             return False
+
+        if '/wp-content/uploads/' in path and not path.endswith('.html'):
+            return False
+
 
         # avoid repeated directory traps
         if re.search(r"(/.+)\1{2,}", path):

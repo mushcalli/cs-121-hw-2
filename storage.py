@@ -7,7 +7,7 @@ def open_shelves():
     global _stats_shelf, _words_shelf
 
     if _stats_shelf is None:
-        _stats_shelf = shelve.open("crawler_stats.db")
+        _stats_shelf = shelve.open("crawler_stats.db", writeback=True) # write to disk !!!!!!!
         if 'longest_page' not in _stats_shelf:
             _stats_shelf['longest_page'] = {'url': 'None', 'count': 0}
         if 'subdomains' not in _stats_shelf:
@@ -16,14 +16,16 @@ def open_shelves():
             _stats_shelf['page_count'] = 0
 
     if _words_shelf is None:
-         _words_shelf = shelve.open("crawler_words.db")
+         _words_shelf = shelve.open("crawler_words.db", writeback=True)
 
 def close_shelves():
     global _stats_shelf, _words_shelf
     if _stats_shelf is not None:
+        _stats_shelf.sync() # flush before closing
         _stats_shelf.close()
         _stats_shelf = None
     if _words_shelf is not None:
+        _words_shelf.sync()
         _words_shelf.close()
         _words_shelf = None
 

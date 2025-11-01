@@ -1,4 +1,4 @@
-from threading import Thread
+from threading import Thread, Lock
 
 from inspect import getsource
 from utils.download import download
@@ -18,6 +18,7 @@ class Worker(Thread):
         # add hash and shingles for similarity detection
         self.hashes = set()
         self.shingles = {}
+        self.lock = Lock()
         # basic check for requests in scraper
         assert {getsource(scraper).find(req) for req in {"from requests import", "import requests"}} == {-1}, "Do not use requests in scraper.py"
         assert {getsource(scraper).find(req) for req in {"from urllib.request import", "import urllib.request"}} == {-1}, "Do not use urllib.request in scraper.py"
@@ -49,31 +50,32 @@ class Worker(Thread):
                 continue
 
             page_hashes = exact_hash(content)
-            if page_hashes in self.hashes:
-                self.logger.info(f"[Duplicate] Skipping exact duplicate: {tbd_url}")
-                self.frontier.mark_url_complete(tbd_url)
-                continue
-            self.hashes.add(page_hashes)
-            page_shingles = shingles(content)
-            # check near similarity here
-            is_near_duplicate = False
-            for other_url, other_shingles in self.shingles.items():
-                # compute similarity and compare with threshold
-                # if nearly similar, complete
-                sim = similarity(page_shingles, other_shingles)
-                if sim >= SIMILARITY_THRESHOLD:
-                    self.logger.info(f"[Near-duplicate] {tbd_url} ≈ {other_url} (similarity={sim:.2f})")
-                    is_near_duplicate = True
-                    break
+            with self.lock: # multithreading
+                if page_hashes in self.hashes:
+                    self.logger.info(f"[Duplicate] Skipping exact duplicate: {tbd_url}")
+                    self.frontier.mark_url_complete(tbd_url)
+                    continue
+                self.hashes.add(page_hashes)
+                page_shingles = shingles(content)
+                # check near similarity here
+                is_near_duplicate = False
+                for other_url, other_shingles in self.shingles.items():
+                    # compute similarity and compare with threshold
+                    # if nearly similar, complete
+                    sim = similarity(page_shingles, other_shingles)
+                    if sim >= SIMILARITY_THRESHOLD:
+                        self.logger.info(f"[Near-duplicate] {tbd_url} ≈ {other_url} (similarity={sim:.2f})")
+                        is_near_duplicate = True
+                        break
+        
+                if is_near_duplicate:
+                    self.frontier.mark_url_complete(tbd_url)
+                    continue
     
-            if is_near_duplicate:
-                self.frontier.mark_url_complete(tbd_url)
-                continue
-
-            # Store shingles for this page
-            self.shingles[tbd_url] = page_shingles
-
-            # end detection
+                # Store shingles for this page
+                self.shingles[tbd_url] = page_shingles
+    
+                # end detection
             
             
             self.logger.info(
@@ -83,4 +85,4 @@ class Worker(Thread):
             for scraped_url in scraped_urls:
                 self.frontier.add_url(scraped_url)
             self.frontier.mark_url_complete(tbd_url)
-            time.sleep(self.config.time_delay)
+            # time.sleep(self.config.time_delay) -> handled in frontier --> check 

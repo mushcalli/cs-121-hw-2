@@ -14,8 +14,6 @@ def open_shelves():
             _stats_shelf['subdomains'] = {}
         if 'page_count' not in _stats_shelf:
             _stats_shelf['page_count'] = 0
-        if 'valid_page_count' not in _stats_shelf:
-            _stats_shelf['valid_page_count'] = 0
 
     if _words_shelf is None:
          _words_shelf = shelve.open("crawler_words.db")

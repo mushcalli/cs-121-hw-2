@@ -234,9 +234,17 @@ def is_valid(url):
         # /events/category/volunteer-opportunity/list/?tribe-bar-date=2025-08-13
         # /events/category/volunteer-opportunity/list/?tribe-bar-date=2025-08-13&eventDisplay=past
         # /events/category/volunteer-opportunity/list/?tribe-bar-date=2025-08-13&ical=1
-        if ("/events/" in path and
-        ("/day/" in path or "/list/" in path or re.search(r"\d{4}-\d{2}-\d{2}", path) or re.search(r"/events/category/.+/\d{4}-\d{2}", path)  # date-based URLs
-        )):
+        if (
+            "/events/" in path and (
+                "/day/" in path or
+                "/list/" in path or
+                re.search(r"\d{4}-\d{2}-\d{2}", path) or   # /2025-08-15 style
+                re.search(r"/events/category/.+/\d{4}-\d{2}", path)  # /fundraiser/2021-03 style
+            )
+        ):
+            return False
+
+        if re.search(r"/events/.*/\d{4}-\d{2}", path):
             return False
 
         # avoid wp-json and other API endpoints

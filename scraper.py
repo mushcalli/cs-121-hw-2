@@ -89,8 +89,8 @@ def scraper(url, resp):
 
 # --- Helper Functions ---
 def tokenize(text):
-    """Splits text into lowercase alphanumeric tokens."""
-    return re.findall(r"[a-zA-Z0-9]+", text.lower())
+    """Splits text into lowercase tokens."""
+    return re.findall(r"[a-zA-Z0-9\’\'\-]+", text.lower())
 
 
 def is_low_info(tokens):
